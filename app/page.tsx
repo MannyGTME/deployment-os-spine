@@ -43,35 +43,44 @@ async function fetchDashboardData() {
       .eq('Status', 'Killed'),
 
     supabase
-      .from('Signals_Ingested')
-      .select(`
-        id,
-        Agency_Name,
-        created_at,
-        Routing_Status ( Status, Webhook_Fired_Timestamp ),
-        Enrichment_Scores ( Total_Score )
-      `)
-      .order('created_at', { ascending: false })
+      .from('Routing_Status')
+      .select('signal_id, Status, Webhook_Fired_Timestamp')
       .limit(50),
   ]);
 
-  const initialRows: MatrixRow[] = (matrixRaw ?? [])
-    .filter(row => {
-      const rs = row.Routing_Status as Array<{ Status: string; Webhook_Fired_Timestamp: string | null }>;
-      return rs && rs.length > 0;
-    })
-    .map(row => {
-      const rs = row.Routing_Status as Array<{ Status: string; Webhook_Fired_Timestamp: string | null }>;
-      const es = row.Enrichment_Scores as Array<{ Total_Score: number }>;
-      return {
-        signal_id: row.id as string,
-        agency_name: row.Agency_Name as string,
-        total_score: es?.[0]?.Total_Score ?? 0,
-        status: (rs?.[0]?.Status ?? 'Pending') as MatrixRow['status'],
-        webhook_fired_timestamp: rs?.[0]?.Webhook_Fired_Timestamp ?? null,
-        created_at: row.created_at as string,
-      };
-    });
+  const routingRows = matrixRaw ?? [];
+  const signalIds = routingRows.map(r => r.signal_id as string).filter(Boolean);
+
+  let initialRows: MatrixRow[] = [];
+  if (signalIds.length > 0) {
+    const [{ data: signalsData }, { data: scoresData }] = await Promise.all([
+      supabase
+        .from('Signals_Ingested')
+        .select('id, Agency_Name, created_at')
+        .in('id', signalIds),
+      supabase
+        .from('Enrichment_Scores')
+        .select('signal_id, Total_Score')
+        .in('signal_id', signalIds),
+    ]);
+
+    initialRows = routingRows
+      .map(rs => {
+        const signal = (signalsData ?? []).find(s => s.id === rs.signal_id);
+        const score = (scoresData ?? []).find(s => s.signal_id === rs.signal_id);
+        if (!signal) return null;
+        return {
+          signal_id: rs.signal_id as string,
+          agency_name: signal.Agency_Name as string,
+          total_score: (score?.Total_Score as number) ?? 0,
+          status: (rs.Status ?? 'Pending') as MatrixRow['status'],
+          webhook_fired_timestamp: (rs.Webhook_Fired_Timestamp as string) ?? null,
+          created_at: signal.created_at as string,
+        };
+      })
+      .filter((r): r is MatrixRow => r !== null)
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  }
 
   return {
     totalSignals: totalSignals ?? 0,
