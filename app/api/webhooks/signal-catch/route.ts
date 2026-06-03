@@ -11,12 +11,12 @@ export async function POST(req: Request) {
   try {
     const body = await req.json();
 
-    // 1. Destructure the new 15-point payload
+    // 1. Destructure the payload (with safe defaults to prevent undefined errors)
     const {
-      agency_name,
-      job_url,
-      posting_date,
-      raw_html,
+      agency_name = "Unknown Agency",
+      job_url = "",
+      posting_date = new Date().toISOString(),
+      raw_html = "",
       intent_score = 0,
       growth_score = 0,
       tech_stack_score = 0,
@@ -49,9 +49,10 @@ export async function POST(req: Request) {
       .single();
 
     if (signalError) throw signalError;
+    if (!signalData) throw new Error("No data returned from signal insert.");
     const signalId = signalData.id;
 
-    // 5. Insert the new 15-point matrix and Reasoning String
+    // 5. Insert the new 15-point matrix, Total_Score, and Reasoning String
     const { error: scoreError } = await supabase
       .from('Enrichment_Scores')
       .insert([{
@@ -61,31 +62,46 @@ export async function POST(req: Request) {
         "Tech_Stack_Score": tech_stack_score,
         "Service_Alignment_Score": service_alignment_score,
         "Channel_Maturity_Score": channel_maturity_score,
+        "Total_Score": totalScore,
         "Reasoning_String": reasoning_string
       }]);
 
     if (scoreError) throw scoreError;
 
-    // 6. Record the final routing status
+    // 6. Isolated CRM Webhook Fire (Fails gracefully without crashing DB commits)
+    let webhookFired = false;
+    let webhookTimestamp = null;
+
+    if (routingTier === 'Tier_1' && process.env.CRM_WEBHOOK_URL) {
+      try {
+        const response = await fetch(process.env.CRM_WEBHOOK_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ agency_name, totalScore, reasoning_string, routingTier })
+        });
+
+        if (response.ok) {
+          webhookFired = true;
+          webhookTimestamp = new Date().toISOString();
+        } else {
+          console.error("CRM Webhook failed with status:", response.status);
+        }
+      } catch (fetchError) {
+        console.error("Network error hitting CRM Webhook:", fetchError);
+        // Do NOT throw here. The signal was successfully scored and stored.
+      }
+    }
+
+    // 7. Record the final routing status (Capital 'Status' for DB match)
     const { error: routingError } = await supabase
       .from('Routing_Status')
       .insert([{
         signal_id: signalId,
-        status: routingTier
+        "Status": routingTier,
+        "Webhook_Fired_Timestamp": webhookTimestamp
       }]);
 
     if (routingError) throw routingError;
-
-    // 7. Fire to the dummy CRM webhook ONLY if it is a Tier 1 VIP
-    let webhookFired = false;
-    if (routingTier === 'Tier_1' && process.env.CRM_WEBHOOK_URL) {
-      await fetch(process.env.CRM_WEBHOOK_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ agency_name, totalScore, reasoning_string, routingTier })
-      });
-      webhookFired = true;
-    }
 
     return NextResponse.json({
         status: routingTier,
