@@ -1,136 +1,100 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { getSupabaseServerClient } from '@/lib/supabase-server';
+import { NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
 
-interface SignalPayload {
-  agency_name: string;
-  job_url: string;
-  posting_date: string;
-  raw_html: string;
-  tech_stack_score: number;
-  service_alignment_score: number;
-}
+// Initialize Supabase Client
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
 
-function computeRoutingStatus(totalScore: number): 'Tier_1' | 'Standard' | 'Killed' {
-  if (totalScore >= 5) return 'Tier_1';
-  if (totalScore >= 3) return 'Standard';
-  return 'Killed';
-}
-
-function validatePayload(body: Record<string, unknown>): { valid: boolean; error?: string } {
-  const required = ['agency_name', 'job_url', 'posting_date', 'raw_html', 'tech_stack_score', 'service_alignment_score'];
-  const missing = required.filter(f => body[f] === undefined || body[f] === null);
-  if (missing.length > 0) {
-    return { valid: false, error: `Missing required fields: ${missing.join(', ')}` };
-  }
-  const techScore = Number(body.tech_stack_score);
-  const svcScore = Number(body.service_alignment_score);
-  if (isNaN(techScore) || techScore < 0 || techScore > 3) {
-    return { valid: false, error: 'tech_stack_score must be an integer between 0 and 3' };
-  }
-  if (isNaN(svcScore) || svcScore < 0 || svcScore > 3) {
-    return { valid: false, error: 'service_alignment_score must be an integer between 0 and 3' };
-  }
-  return { valid: true };
-}
-
-export async function POST(req: NextRequest) {
+export async function POST(req: Request) {
   try {
-    const body = await req.json() as Record<string, unknown>;
+    const body = await req.json();
 
-    const validation = validatePayload(body);
-    if (!validation.valid) {
-      return NextResponse.json({ error: validation.error }, { status: 400 });
+    // 1. Destructure the new 15-point payload
+    const {
+      agency_name,
+      job_url,
+      posting_date,
+      raw_html,
+      intent_score = 0,
+      growth_score = 0,
+      tech_stack_score = 0,
+      service_alignment_score = 0,
+      channel_maturity_score = 0,
+      reasoning_string = "No reasoning provided."
+    } = body;
+
+    // 2. Calculate the total score out of 15
+    const totalScore = intent_score + growth_score + tech_stack_score + service_alignment_score + channel_maturity_score;
+
+    // 3. Apply the ColdIQ Gating Logic
+    let routingTier = 'Killed'; // Default to Kill (0-5)
+    if (totalScore >= 11) {
+        routingTier = 'Tier_1'; // VIPs (11-15)
+    } else if (totalScore >= 6) {
+        routingTier = 'Standard'; // The Bench (6-10)
     }
 
-    const payload = body as unknown as SignalPayload;
-    const totalScore = Number(payload.tech_stack_score) + Number(payload.service_alignment_score);
-    const supabase = getSupabaseServerClient();
-
-    // Step 1: Insert into Signals_Ingested
+    // 4. Ingest the raw signal
     const { data: signalData, error: signalError } = await supabase
       .from('Signals_Ingested')
-      .insert({
-        Agency_Name: payload.agency_name,
-        Job_URL: payload.job_url,
-        Posting_Date: payload.posting_date,
-        Raw_HTML: payload.raw_html,
-      })
-      .select('id')
+      .insert([{
+        "Agency_Name": agency_name,
+        "Job_URL": job_url,
+        "Posting_Date": posting_date,
+        "Raw_HTML": raw_html
+      }])
+      .select()
       .single();
 
-    if (signalError || !signalData) {
-      console.error('Signals_Ingested insert failed:', signalError);
-      return NextResponse.json({ error: 'Failed to ingest signal' }, { status: 500 });
-    }
+    if (signalError) throw signalError;
+    const signalId = signalData.id;
 
-    const signalId: string = signalData.id;
-
-    // Step 2: Insert into Enrichment_Scores
-    const { error: enrichError } = await supabase
+    // 5. Insert the new 15-point matrix and Reasoning String
+    const { error: scoreError } = await supabase
       .from('Enrichment_Scores')
-      .insert({
+      .insert([{
         signal_id: signalId,
-        Tech_Stack_Score: Number(payload.tech_stack_score),
-        Service_Alignment_Score: Number(payload.service_alignment_score),
-        Total_Score: totalScore,
-      });
+        "Intent_Score": intent_score,
+        "Growth_Score": growth_score,
+        "Tech_Stack_Score": tech_stack_score,
+        "Service_Alignment_Score": service_alignment_score,
+        "Channel_Maturity_Score": channel_maturity_score,
+        "Reasoning_String": reasoning_string
+      }]);
 
-    if (enrichError) {
-      console.error('Enrichment_Scores insert failed:', enrichError);
-      return NextResponse.json({ error: 'Failed to record enrichment scores', signal_id: signalId }, { status: 500 });
-    }
+    if (scoreError) throw scoreError;
 
-    // Step 3: Compute routing status
-    const routingStatus = computeRoutingStatus(totalScore);
-
-    // Step 4: Fire outbound webhook for Tier_1 and Standard
-    let webhookFiredTimestamp: string | null = null;
-    let webhookFired = false;
-
-    if (routingStatus !== 'Killed') {
-      webhookFiredTimestamp = new Date().toISOString();
-      try {
-        const crmResponse = await fetch(process.env.CRM_WEBHOOK_URL!, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            signal_id: signalId,
-            agency_name: payload.agency_name,
-            job_url: payload.job_url,
-            total_score: totalScore,
-            routing_status: routingStatus,
-          }),
-        });
-        webhookFired = crmResponse.ok;
-        if (!crmResponse.ok) {
-          console.error('CRM webhook returned non-2xx:', crmResponse.status);
-        }
-      } catch (fireError) {
-        console.error('CRM webhook fire failed:', fireError);
-        // Best-effort — continue to record routing status
-      }
-    }
-
-    // Step 5: Insert into Routing_Status
+    // 6. Record the final routing status
     const { error: routingError } = await supabase
       .from('Routing_Status')
-      .insert({
+      .insert([{
         signal_id: signalId,
-        Status: routingStatus,
-        Webhook_Fired_Timestamp: webhookFiredTimestamp,
-      });
+        status: routingTier
+      }]);
 
-    if (routingError) {
-      console.error('Routing_Status insert failed:', routingError);
-      return NextResponse.json(
-        { error: 'Failed to record routing status', signal_id: signalId, status: routingStatus },
-        { status: 500 }
-      );
+    if (routingError) throw routingError;
+
+    // 7. Fire to the dummy CRM webhook ONLY if it is a Tier 1 VIP
+    let webhookFired = false;
+    if (routingTier === 'Tier_1' && process.env.CRM_WEBHOOK_URL) {
+      await fetch(process.env.CRM_WEBHOOK_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agency_name, totalScore, reasoning_string, routingTier })
+      });
+      webhookFired = true;
     }
 
-    return NextResponse.json({ signal_id: signalId, status: routingStatus, webhook_fired: webhookFired });
-  } catch (err) {
-    console.error('Unhandled error in signal-catch:', err);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return NextResponse.json({
+        status: routingTier,
+        total_score: totalScore,
+        webhook_fired: webhookFired
+    });
+
+  } catch (error) {
+    console.error("Pipeline Error:", error);
+    return NextResponse.json({ error: 'Failed to process signal' }, { status: 500 });
   }
 }
