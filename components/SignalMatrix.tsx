@@ -35,14 +35,14 @@ function formatTimestamp(dateStr: string | null): string {
 }
 
 function ScoreBadge({ score }: { score: number }) {
-  const color = score >= 5
+  const color = score >= 11
     ? 'text-cyan-400 border-cyan-800 bg-cyan-950/30'
-    : score >= 3
+    : score >= 6
     ? 'text-yellow-400 border-yellow-800 bg-yellow-950/30'
     : 'text-red-500 border-red-900 bg-red-950/30';
   return (
     <span className={`text-xs px-2 py-0.5 rounded border font-mono ${color}`}>
-      {score}/6
+      {score}/15
     </span>
   );
 }
