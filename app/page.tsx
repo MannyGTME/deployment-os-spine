@@ -1,5 +1,5 @@
 import { getSupabaseServerClient } from '@/lib/supabase-server';
-import StatCard from '@/components/StatCard';
+import TotalSignalsCard from '@/components/TotalSignalsCard';
 import SystemHealth from '@/components/SystemHealth';
 import SignalMatrix, { MatrixRow } from '@/components/SignalMatrix';
 
@@ -113,11 +113,7 @@ export default async function CommandCenter() {
       <main className="flex-1 p-6 flex flex-col gap-6">
         {/* Top row: stats */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          <StatCard
-            label="Total Signals Caught"
-            value={totalSignals}
-            subtext="All-time ingested signals"
-          />
+          <TotalSignalsCard initialCount={totalSignals} />
           <div className="lg:col-span-2">
             <SystemHealth
               initialLastReceived={lastReceived}

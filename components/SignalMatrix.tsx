@@ -83,21 +83,27 @@ export default function SignalMatrix({ initialRows }: SignalMatrixProps) {
         async (payload) => {
           const signalId = payload.new.signal_id as string;
 
-          const { data } = await supabase
-            .from('Signals_Ingested')
-            .select('Agency_Name, created_at, Enrichment_Scores(Total_Score)')
-            .eq('id', signalId)
-            .single();
+          const [{ data: signalData }, { data: scoreData }] = await Promise.all([
+            supabase
+              .from('Signals_Ingested')
+              .select('Agency_Name, created_at')
+              .eq('id', signalId)
+              .single(),
+            supabase
+              .from('Enrichment_Scores')
+              .select('Total_Score')
+              .eq('signal_id', signalId)
+              .single(),
+          ]);
 
-          if (data) {
-            const enrichment = data.Enrichment_Scores as Array<{ Total_Score: number }>;
+          if (signalData) {
             const newRow: MatrixRow = {
               signal_id: signalId,
-              agency_name: data.Agency_Name as string,
-              total_score: enrichment?.[0]?.Total_Score ?? 0,
+              agency_name: signalData.Agency_Name as string,
+              total_score: (scoreData?.Total_Score as number) ?? 0,
               status: payload.new.Status as MatrixRow['status'],
               webhook_fired_timestamp: payload.new.Webhook_Fired_Timestamp as string | null,
-              created_at: data.created_at as string,
+              created_at: signalData.created_at as string,
             };
 
             setRows(prev => [newRow, ...prev]);
