@@ -64,21 +64,20 @@ async function fetchDashboardData() {
         .in('signal_id', signalIds),
     ]);
 
-    initialRows = routingRows
-      .map(rs => {
-        const signal = (signalsData ?? []).find(s => s.id === rs.signal_id);
-        const score = (scoresData ?? []).find(s => s.signal_id === rs.signal_id);
-        if (!signal) return null;
-        return {
-          signal_id: rs.signal_id as string,
-          agency_name: signal.Agency_Name as string,
-          total_score: (score?.Total_Score as number) ?? 0,
-          status: (rs.Status ?? 'Pending') as MatrixRow['status'],
-          webhook_fired_timestamp: (rs.Webhook_Fired_Timestamp as string) ?? null,
-          created_at: signal.created_at as string,
-        };
-      })
-      .filter((r): r is MatrixRow => r !== null)
+    const mapped = routingRows.map(rs => {
+      const signal = (signalsData ?? []).find(s => s.id === rs.signal_id);
+      const score = (scoresData ?? []).find(s => s.signal_id === rs.signal_id);
+      if (!signal) return null;
+      return {
+        signal_id: rs.signal_id as string,
+        agency_name: signal.Agency_Name as string,
+        total_score: (score?.Total_Score as number) ?? 0,
+        status: (rs.Status ?? 'Pending') as MatrixRow['status'],
+        webhook_fired_timestamp: (rs.Webhook_Fired_Timestamp as string | null) ?? null,
+        created_at: signal.created_at as string,
+      } satisfies MatrixRow;
+    });
+    initialRows = (mapped.filter(r => r !== null) as MatrixRow[])
       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   }
 
