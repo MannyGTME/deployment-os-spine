@@ -7,23 +7,43 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+function clampScore(value: unknown, max: number): number {
+  const n = Number(value);
+  if (!isFinite(n)) return 0;
+  return Math.max(0, Math.min(max, Math.floor(n)));
+}
+
 export async function POST(req: Request) {
+  // Verify shared secret when configured
+  const secret = process.env.WEBHOOK_SECRET;
+  if (secret) {
+    const incoming = req.headers.get('x-webhook-secret');
+    if (incoming !== secret) {
+      return NextResponse.json({ error: 'Unauthorised' }, { status: 401 });
+    }
+  }
+
   try {
     const body = await req.json();
 
-    // 1. Destructure the payload (with safe defaults to prevent undefined errors)
+    // 1. Destructure and sanitise the payload
     const {
-      agency_name = "Unknown Agency",
+      agency_name,
       job_url = "",
       posting_date = new Date().toISOString(),
       raw_html = "",
-      intent_score = 0,
-      growth_score = 0,
-      tech_stack_score = 0,
-      service_alignment_score = 0,
-      channel_maturity_score = 0,
       reasoning_string = "No reasoning provided."
     } = body;
+
+    if (!agency_name || typeof agency_name !== 'string' || agency_name.trim() === '') {
+      return NextResponse.json({ error: 'agency_name is required' }, { status: 400 });
+    }
+
+    const intent_score             = clampScore(body.intent_score, 5);
+    const growth_score             = clampScore(body.growth_score, 4);
+    const tech_stack_score         = clampScore(body.tech_stack_score, 3);
+    const service_alignment_score  = clampScore(body.service_alignment_score, 2);
+    const channel_maturity_score   = clampScore(body.channel_maturity_score, 1);
 
     // 2. Calculate the total score out of 15
     const totalScore = intent_score + growth_score + tech_stack_score + service_alignment_score + channel_maturity_score;
