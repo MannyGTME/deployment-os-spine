@@ -14,7 +14,7 @@ This is the **Deployment-OS-Spine** — the foundational template and operating 
 |---|---|
 | `planning_phase.md` | Step-by-step checklist to complete before any build begins |
 | `secure.md` | QA and Security skill checklists + shell permission model |
-| `CLAUDE (1).md` | Extended agent operating instructions (WAT framework detail) |
+| `WAT_AGENT_GUIDE.md` | Extended agent operating instructions (WAT framework detail) |
 
 When this spine is deployed to a new project, `workflows/` and `tools/` directories are added alongside these files.
 

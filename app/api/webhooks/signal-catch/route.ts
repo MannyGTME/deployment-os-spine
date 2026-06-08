@@ -13,7 +13,30 @@ function clampScore(value: unknown, max: number): number {
   return Math.max(0, Math.min(max, Math.floor(n)));
 }
 
+// Simple in-memory rate limit: 30 requests per 10-minute window per IP.
+// Resets on cold start -- adequate for a low-volume internal webhook,
+// not a substitute for an edge-level limiter at higher scale.
+const RATE_LIMIT_MAX = 30;
+const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
+const requestLog = new Map<string, number[]>();
+
+function isRateLimited(ip: string): boolean {
+  const now = Date.now();
+  const timestamps = (requestLog.get(ip) ?? []).filter(t => now - t < RATE_LIMIT_WINDOW_MS);
+  timestamps.push(now);
+  requestLog.set(ip, timestamps);
+  return timestamps.length > RATE_LIMIT_MAX;
+}
+
 export async function POST(req: Request) {
+  const ip = req.headers.get('x-forwarded-for')?.split(',')[0].trim() ?? 'unknown';
+  if (isRateLimited(ip)) {
+    return NextResponse.json(
+      { error: 'Too many requests' },
+      { status: 429, headers: { 'Retry-After': '600' } }
+    );
+  }
+
   // Verify shared secret when configured
   const secret = process.env.WEBHOOK_SECRET;
   if (secret) {
