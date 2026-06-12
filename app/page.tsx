@@ -98,17 +98,6 @@ export default async function CommandCenter() {
 
   return (
     <div className="min-h-screen flex flex-col">
-      {/* Header */}
-      <header className="border-b border-surface-700 px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="w-1.5 h-4 bg-cyan-500 rounded-sm" />
-          <h1 className="text-sm uppercase tracking-[0.2em] text-zinc-200">
-            Deployment OS <span className="text-zinc-600">//</span> Command Center
-          </h1>
-        </div>
-        <span className="text-xs text-zinc-600 tracking-widest uppercase">GTM Signal Router</span>
-      </header>
-
       {/* Body */}
       <main className="flex-1 p-6 flex flex-col gap-6">
         {/* Top row: stats */}

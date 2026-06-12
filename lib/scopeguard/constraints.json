@@ -1,0 +1,28 @@
+{
+  "onboarding_timeline": {
+    "standard_weeks_min": 2,
+    "standard_weeks_max": 4,
+    "absolute_floor_weeks": 2,
+    "note": "Anything promised under 2 weeks is a violation; 2 weeks exactly is a stretch."
+  },
+  "send_volume": {
+    "day_one_max_per_day": 500,
+    "ramp_to_per_day": 5000,
+    "ramp_period_days": 30,
+    "note": "Day-one volume above 500/day violates deliverability ramp. Promising 5k/day before day 30 is a stretch-to-violation depending on timeline."
+  },
+  "live_integrations": ["Smartlead", "HubSpot", "Slack", "Clay"],
+  "custom_integrations_policy": "Anything not in live_integrations requires separate scoping — promising it as included is a violation.",
+  "support_sla": {
+    "standard": "next business day",
+    "note": "24/7 or same-hour support promises are violations."
+  },
+  "reporting": {
+    "standard_cadence": "weekly",
+    "note": "Real-time or daily custom dashboards promised as included = stretch; as day-one deliverable = violation."
+  },
+  "team_capacity": {
+    "max_concurrent_onboardings": 3,
+    "note": "Used in production for scheduling checks; informational for demo."
+  }
+}
