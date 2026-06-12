@@ -3,6 +3,8 @@ import Anthropic from '@anthropic-ai/sdk';
 import { getSupabaseServerClient } from '@/lib/supabase-server';
 import constraints from '@/lib/scopeguard/constraints.json';
 
+export const maxDuration = 60;
+
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
 
 const VALID_CATEGORIES = ['timeline', 'volume', 'integration', 'support', 'reporting', 'other'];
